@@ -2,25 +2,23 @@ import { colours, extendedCommand } from "@/utils/types.js";
 import { ChatInputCommandInteraction, EmbedBuilder, SlashCommandBuilder } from "discord.js";
 import client from "@/utils/client.js";
 import { guildMemberCount } from "@/database/schema.js";
-import { gt, and, eq, sql } from "drizzle-orm";
+import { gt, and, eq, desc } from "drizzle-orm";
 
 const callback = async (interaction: ChatInputCommandInteraction) => {
     const now = new Date();
     const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 
-    const todayRecords = await client.database
-        .select({ count: sql<number>`count(*)` })
-        .from(guildMemberCount)
-        .where(and(gt(guildMemberCount.date, startOfToday), eq(guildMemberCount.guildId, interaction.guild!.id)))
-        .groupBy(guildMemberCount.date)
-        .execute();
+    const todayRecords = await client.database.$count(
+        guildMemberCount,
+        and(gt(guildMemberCount.date, startOfToday), eq(guildMemberCount.guildId, interaction.guild!.id))
+    );
 
     const mostRecent = await client.database
         .select()
         .from(guildMemberCount)
         .where(eq(guildMemberCount.guildId, interaction.guild!.id))
-        .orderBy(guildMemberCount.date)
-        .limit((todayRecords[0]?.count ?? 0) + 1)
+        .orderBy(desc(guildMemberCount.date))
+        .limit(todayRecords + 1)
         .execute();
 
     const membersStart = mostRecent[0]!.count;

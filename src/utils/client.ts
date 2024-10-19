@@ -16,11 +16,13 @@ import startup from "@/utils/startup/index.js";
 
 import ping from "@/commands/ping.js";
 import summary from "@/commands/summary.js";
+import crypto from "crypto";
 
 class NucleusClient extends Client {
     config: typeof configFile;
     commands: Record<string, extendedCommand>;
     database: typeof dbClient;
+    authHash: { now: string; prev: string; expires: Date };
 
     constructor(config: typeof configFile) {
         super({
@@ -37,6 +39,7 @@ class NucleusClient extends Client {
             ping,
             summary
         };
+        this.authHash = { now: "", prev: "", expires: new Date() };
     }
 
     async teardown() {
@@ -119,6 +122,26 @@ class NucleusClient extends Client {
 
     async startup() {
         await startup(this);
+    }
+
+    _isValidHash(hash: string): boolean {
+        return hash === this.authHash.now || hash === this.authHash.prev;
+    }
+
+    authToken(test?: string): boolean | typeof this.authHash {
+        if (this.authHash.expires > new Date()) return test ? this._isValidHash(test) : this.authHash;
+        const auth = process.env["NUCLEUS_AUTH"];
+        if (!auth) {
+            logs.error("No auth token provided in environment");
+            return false;
+        }
+        const date = new Date();
+        const toHash = `${auth}${date.getDate()}${date.getHours()}${date.getMinutes()}`;
+        const previousMinute = `${auth}${date.getDate()}${date.getHours()}${(date.getMinutes() - 1) % 60}`;
+        const hash = crypto.createHash("sha256").update(toHash).digest("hex");
+        const prevHash = crypto.createHash("sha256").update(previousMinute).digest("hex");
+        this.authHash = { now: hash, prev: prevHash, expires: new Date(date.getTime() + 60000) };
+        return test ? this._isValidHash(test) : this.authHash;
     }
 }
 
